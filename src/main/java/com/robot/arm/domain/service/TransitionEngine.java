@@ -1,49 +1,31 @@
 package com.robot.arm.domain.service;
 
-import com.robot.arm.domain.model.AutomatonResult;
-import com.robot.arm.domain.model.Position;
-import com.robot.arm.domain.model.RobotState;
-import com.robot.arm.domain.model.Symbol;
+import com.robot.arm.domain.model.*;
 import com.robot.arm.domain.ports.in.ProcessSequenceUseCase;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
-/**
- * Implementación de δ para el AFD del brazo robótico 3x3 con una sola pieza.
- *
- * Responsabilidad única (SRP): esta clase solo calcula transiciones de estado;
- * no conoce nada de la interfaz gráfica.
- */
-public final class TransitionEngine implements ProcessSequenceUseCase {
-
-    /** Posición inicial de la única pieza sobre el tablero (celda (1,1), centro). */
-    private static final Position INITIAL_PIECE_POSITION = new Position(1, 1);
-
-    /**
-     * q0 = (0, 0, holding=false, pieza en (1,1)).
-     */
-    public static RobotState initialState() {
-        return new RobotState(0, 0, false, Optional.of(INITIAL_PIECE_POSITION));
-    }
+public class TransitionEngine implements ProcessSequenceUseCase {
 
     @Override
-    public AutomatonResult process(String input) {
-        // Verificación de pertenencia al alfabeto: si algún símbolo no está en Σ,
-        // la cadena completa no pertenece al lenguaje reconocido por M.
-        for (char c : input.toCharArray()) {
-            if (Symbol.fromChar(c).isEmpty()) {
-                return AutomatonResult.rejected("La cadena no pertenece.");
-            }
+    public AutomatonResult process(String sequence) {
+        if (sequence == null) {
+            return AutomatonResult.rejected();
         }
 
+        RobotState current = RobotState.initial();
         List<RobotState> trace = new ArrayList<>();
-        RobotState current = initialState();
         trace.add(current);
 
-        for (char c : input.toCharArray()) {
-            Symbol symbol = Symbol.fromChar(c).orElseThrow();
+        for (char c : sequence.trim().toCharArray()) {
+            var symbolOpt = Symbol.fromChar(c);
+            if (symbolOpt.isEmpty()) {
+                // Único caso de rechazo de cadena: Símbolo fuera del alfabeto Σ
+                return AutomatonResult.rejected();
+            }
+
+            Symbol symbol = symbolOpt.get();
             current = delta(current, symbol);
             trace.add(current);
         }
@@ -52,47 +34,71 @@ public final class TransitionEngine implements ProcessSequenceUseCase {
     }
 
     /**
-     * δ(q, σ) — función de transición del autómata.
+     * Función de Transición δ(q, σ) -> q'
+     * Implementa autobucle (mantiene el estado) ante cualquier operación no permitida.
      */
-    public RobotState delta(RobotState q, Symbol symbol) {
+    public RobotState delta(RobotState state, Symbol symbol) {
+        int x = state.x();
+        int y = state.y();
+        GripperState gripper = state.gripperState();
+        PiecePosition p1 = state.piece1();
+        PiecePosition p2 = state.piece2();
+
         return switch (symbol) {
-            case UP -> new RobotState(q.gripperX(), Math.min(2, q.gripperY() + 1), q.holding(), q.piecePosition());
-            case DOWN -> new RobotState(q.gripperX(), Math.max(0, q.gripperY() - 1), q.holding(), q.piecePosition());
-            case LEFT -> new RobotState(Math.max(0, q.gripperX() - 1), q.gripperY(), q.holding(), q.piecePosition());
-            case RIGHT -> new RobotState(Math.min(2, q.gripperX() + 1), q.gripperY(), q.holding(), q.piecePosition());
-            case GRAB -> applyGrab(q);
-            case DROP -> applyDrop(q);
+            // Movimientos con acotamiento/rebote en los bordes 0..2 (Autobucle en bordes)
+            case U -> new RobotState(x, Math.min(2, y + 1), gripper, p1, p2, false);
+            case D -> new RobotState(x, Math.max(0, y - 1), gripper, p1, p2, false);
+            case L -> new RobotState(Math.max(0, x - 1), y, gripper, p1, p2, false);
+            case R -> new RobotState(Math.min(2, x + 1), y, gripper, p1, p2, false);
+
+            case PLUS -> handleGrab(state, x, y, gripper, p1, p2);
+            case MINUS -> handleDrop(state, x, y, gripper, p1, p2);
         };
     }
 
-    /**
-     * Tomar (+): si la garra está vacía y la pieza está exactamente en (x,y),
-     * la garra pasa a sostenerla. En cualquier otro caso (garra ya ocupada, o
-     * no hay pieza en la casilla actual) es un autobucle: el estado no cambia
-     * y la garra queda/permanece vacía.
-     */
-    private RobotState applyGrab(RobotState q) {
-        if (q.holding()) {
-            return q; // ya sostiene la pieza -> autobucle
+    private RobotState handleGrab(RobotState currentState, int x, int y, GripperState gripper, PiecePosition p1, PiecePosition p2) {
+        // Si ya sostiene una pieza, mantiene el estado (Autobucle)
+        if (gripper != GripperState.EMPTY) {
+            return currentState;
         }
-        Position piece = q.piecePosition().orElseThrow();
-        boolean gripperOnPiece = piece.x() == q.gripperX() && piece.y() == q.gripperY();
-        if (gripperOnPiece) {
-            return new RobotState(q.gripperX(), q.gripperY(), true, Optional.empty());
+
+        // Si la garra está vacía y sobre una pieza, la toma
+        if (p1.isAt(x, y)) {
+            return new RobotState(x, y, GripperState.HOLDING_PIECE_1, PiecePosition.held(), p2, false);
+        } else if (p2.isAt(x, y)) {
+            return new RobotState(x, y, GripperState.HOLDING_PIECE_2, p1, PiecePosition.held(), false);
+        } else {
+            // Si intenta tomar en casilla vacía, mantiene el estado (Autobucle)
+            return currentState;
         }
-        return q; // no hay pieza aquí -> autobucle, la garra queda vacía
     }
 
-    /**
-     * Soltar (-): si la garra sostiene la pieza, esta se deposita en la
-     * posición actual (x,y) — ya no se exige que la casilla esté libre, pues
-     * solo existe una pieza en el tablero. Si la garra está vacía, es un
-     * autobucle: el estado no cambia y la garra queda vacía.
-     */
-    private RobotState applyDrop(RobotState q) {
-        if (!q.holding()) {
-            return q; // no sostiene nada -> autobucle, la garra queda vacía
+    private RobotState handleDrop(RobotState currentState, int x, int y, GripperState gripper, PiecePosition p1, PiecePosition p2) {
+        // Si la garra está vacía, no hace nada y mantiene el estado (Autobucle)
+        if (gripper == GripperState.EMPTY) {
+            return currentState;
         }
-        return new RobotState(q.gripperX(), q.gripperY(), false, Optional.of(new Position(q.gripperX(), q.gripperY())));
+
+        // Sosteniendo Pieza 1:
+        if (gripper == GripperState.HOLDING_PIECE_1) {
+            // Si intenta soltar en casilla ocupada por Pieza 2 -> MANTIENE EL ESTADO (Autobucle, no la suelta)
+            if (p2.isAt(x, y)) {
+                return currentState;
+            }
+            // Casilla libre -> Deposita Pieza 1
+            return new RobotState(x, y, GripperState.EMPTY, PiecePosition.onGrid(x, y), p2, false);
+        }
+
+        // Sosteniendo Pieza 2:
+        if (gripper == GripperState.HOLDING_PIECE_2) {
+            // Si intenta soltar en casilla ocupada por Pieza 1 -> MANTIENE EL ESTADO (Autobucle, no la suelta)
+            if (p1.isAt(x, y)) {
+                return currentState;
+            }
+            // Casilla libre -> Deposita Pieza 2
+            return new RobotState(x, y, GripperState.EMPTY, p1, PiecePosition.onGrid(x, y), false);
+        }
+
+        return currentState;
     }
 }
