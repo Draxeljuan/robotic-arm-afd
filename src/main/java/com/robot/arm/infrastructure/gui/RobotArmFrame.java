@@ -12,6 +12,7 @@ import java.util.List;
 public class RobotArmFrame extends JFrame {
     private final ProcessSequenceUseCase processSequenceUseCase;
     private final GridPanel gridPanel;
+    private final GraphPanel graphPanel; // Nuevo panel de grafo
     private final JTextField inputField;
     private final JLabel statusLabel;
     private final JLabel stepLabel;
@@ -22,13 +23,22 @@ public class RobotArmFrame extends JFrame {
     public RobotArmFrame(ProcessSequenceUseCase processSequenceUseCase) {
         this.processSequenceUseCase = processSequenceUseCase;
 
-        setTitle("AFD - Control de Brazo Robótico (2 Piezas)");
+        setTitle("AFD - Control de Brazo Robótico & Grafo Dinámico");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        gridPanel = new GridPanel();
-        add(gridPanel, BorderLayout.CENTER);
+        // Panel central con división horizontal: Matriz a la izquierda, Grafo a la derecha
+        JPanel centerPanel = new JPanel(new GridLayout(1, 2, 10, 10));
+        centerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
+        gridPanel = new GridPanel();
+        graphPanel = new GraphPanel();
+
+        centerPanel.add(gridPanel);
+        centerPanel.add(graphPanel);
+        add(centerPanel, BorderLayout.CENTER);
+
+        // Panel inferior de controles
         JPanel controlPanel = new JPanel();
         controlPanel.setLayout(new BoxLayout(controlPanel, BoxLayout.Y_AXIS));
         controlPanel.setBorder(BorderFactory.createEmptyBorder(12, 15, 12, 15));
@@ -41,7 +51,6 @@ public class RobotArmFrame extends JFrame {
         inputField.setFont(new Font("Monospaced", Font.BOLD, 16));
         inputField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 35));
 
-        // Ejecución al presionar ENTER
         inputField.addActionListener(e -> onExecuteSequence());
 
         statusLabel = new JLabel("Estado: Esperando comando (Presione ENTER)");
@@ -79,6 +88,7 @@ public class RobotArmFrame extends JFrame {
             statusLabel.setForeground(new Color(192, 57, 43));
             stepLabel.setText("Paso: -");
             gridPanel.updateState(RobotState.initial());
+            graphPanel.updateState(RobotState.initial());
             return;
         }
 
@@ -88,10 +98,11 @@ public class RobotArmFrame extends JFrame {
         currentTrace = result.trace();
         animationIndex = 0;
 
-        animationTimer = new Timer(450, (ActionEvent e) -> {
+        animationTimer = new Timer(900, (ActionEvent e) -> {
             if (animationIndex < currentTrace.size()) {
                 RobotState state = currentTrace.get(animationIndex);
                 gridPanel.updateState(state);
+                graphPanel.updateState(state); // Actualiza dinámicamente el nodo activo en el grafo
                 stepLabel.setText("Paso " + animationIndex + " / " + (currentTrace.size() - 1));
                 animationIndex++;
             } else {

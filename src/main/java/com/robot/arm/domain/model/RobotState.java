@@ -6,7 +6,7 @@ public record RobotState(
         GripperState gripperState,
         PiecePosition piece1,
         PiecePosition piece2,
-        boolean isError
+        AutomatonStateNode activeNode // Ahora el nodo del grafo es explícito
 ) {
     public static RobotState initial() {
         return new RobotState(
@@ -14,7 +14,7 @@ public record RobotState(
                 GripperState.EMPTY,
                 PiecePosition.onGrid(1, 1),
                 PiecePosition.onGrid(2, 2),
-                false
+                AutomatonStateNode.Q0_INITIAL
         );
     }
 }
