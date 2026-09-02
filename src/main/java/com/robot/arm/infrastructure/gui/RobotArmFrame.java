@@ -3,135 +3,113 @@ package com.robot.arm.infrastructure.gui;
 import com.robot.arm.domain.model.AutomatonResult;
 import com.robot.arm.domain.model.RobotState;
 import com.robot.arm.domain.ports.in.ProcessSequenceUseCase;
-import com.robot.arm.domain.service.TransitionEngine;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
 import java.util.List;
 
-/**
- * Adaptador de entrada/salida (GUI) sin botones y con tipografías ampliadas.
- */
 public class RobotArmFrame extends JFrame {
-
-    private static final int STEP_DELAY_MS = 700;
-
-    private final ProcessSequenceUseCase engine = new TransitionEngine();
-    private final GridPanel gridPanel = new GridPanel();
-    private final JTextField inputField = new JTextField(25);
-    private final JLabel statusLabel = new JLabel("Ingrese una cadena sobre Σ = {U, D, L, R, +, -} y presione Enter");
-    private final JLabel stepLabel = new JLabel(" ");
-
+    private final ProcessSequenceUseCase processSequenceUseCase;
+    private final GridPanel gridPanel;
+    private final GraphPanel graphPanel; // Nuevo panel de grafo
+    private final JTextField inputField;
+    private final JLabel statusLabel;
+    private final JLabel stepLabel;
     private Timer animationTimer;
     private List<RobotState> currentTrace;
-    private int stepIndex;
+    private int animationIndex;
 
-    public RobotArmFrame() {
-        super("AFD - Brazo Robótico 3x3");
+    public RobotArmFrame(ProcessSequenceUseCase processSequenceUseCase) {
+        this.processSequenceUseCase = processSequenceUseCase;
+
+        setTitle("AFD - Control de Brazo Robótico & Grafo Dinámico");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setLayout(new BorderLayout());
 
-        JPanel rootPanel = new JPanel(new BorderLayout(15, 15));
-        rootPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
-        rootPanel.setBackground(new Color(240, 242, 245));
-        setContentPane(rootPanel);
+        // Panel central con división horizontal: Matriz a la izquierda, Grafo a la derecha
+        JPanel centerPanel = new JPanel(new GridLayout(1, 2, 10, 10));
+        centerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        // --- Panel Superior ---
-        JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        top.setOpaque(false);
+        gridPanel = new GridPanel();
+        graphPanel = new GraphPanel();
 
-        JLabel promptLabel = new JLabel("Cadena de entrada:");
-        promptLabel.setFont(new Font("Segoe UI", Font.BOLD, 14)); // Texto más grande
-        promptLabel.setForeground(new Color(33, 37, 41));
+        centerPanel.add(gridPanel);
+        centerPanel.add(graphPanel);
+        add(centerPanel, BorderLayout.CENTER);
 
-        inputField.setFont(new Font("Segoe UI", Font.PLAIN, 15)); // Campo de texto más cómodo
-        inputField.setPreferredSize(new Dimension(280, 35));
+        // Panel inferior de controles
+        JPanel controlPanel = new JPanel();
+        controlPanel.setLayout(new BoxLayout(controlPanel, BoxLayout.Y_AXIS));
+        controlPanel.setBorder(BorderFactory.createEmptyBorder(12, 15, 12, 15));
+        controlPanel.setBackground(new Color(238, 240, 245));
 
-        top.add(promptLabel);
-        top.add(inputField);
-        rootPanel.add(top, BorderLayout.NORTH);
+        JLabel titleLabel = new JLabel("Ingrese la secuencia de comandos (Σ = {U, D, L, R, +, -}):");
+        titleLabel.setFont(new Font("SansSerif", Font.BOLD, 12));
 
-        // --- Panel Central ---
-        JPanel centerContainer = new JPanel(new GridBagLayout());
-        centerContainer.setOpaque(false);
-        centerContainer.add(gridPanel);
-        rootPanel.add(centerContainer, BorderLayout.CENTER);
+        inputField = new JTextField(25);
+        inputField.setFont(new Font("Monospaced", Font.BOLD, 16));
+        inputField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 35));
 
-        // --- Panel Inferior ---
-        JPanel bottom = new JPanel(new GridLayout(2, 1, 0, 6));
-        bottom.setOpaque(false);
+        inputField.addActionListener(e -> onExecuteSequence());
 
-        statusLabel.setFont(new Font("Segoe UI", Font.BOLD, 14)); // Estados más legibles
-        statusLabel.setForeground(new Color(73, 80, 87));
+        statusLabel = new JLabel("Estado: Esperando comando (Presione ENTER)");
+        statusLabel.setFont(new Font("SansSerif", Font.BOLD, 13));
+        statusLabel.setForeground(new Color(44, 62, 80));
 
-        stepLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        stepLabel.setForeground(new Color(108, 117, 125));
+        stepLabel = new JLabel("Paso: 0 / 0");
+        stepLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
 
-        bottom.add(statusLabel);
-        bottom.add(stepLabel);
-        rootPanel.add(bottom, BorderLayout.SOUTH);
+        controlPanel.add(titleLabel);
+        controlPanel.add(Box.createRigidArea(new Dimension(0, 5)));
+        controlPanel.add(inputField);
+        controlPanel.add(Box.createRigidArea(new Dimension(0, 8)));
+        controlPanel.add(statusLabel);
+        controlPanel.add(Box.createRigidArea(new Dimension(0, 4)));
+        controlPanel.add(stepLabel);
 
-        // Evento exclusivo por Enter
-        inputField.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                    onEnterPressed();
-                }
-            }
-        });
+        add(controlPanel, BorderLayout.SOUTH);
 
         pack();
         setLocationRelativeTo(null);
+        setResizable(false);
     }
 
-    private void onEnterPressed() {
-        stopAnimationIfRunning();
-
-        String raw = inputField.getText().trim();
-        AutomatonResult result = engine.process(raw);
-
-        if (!result.accepted()) {
-            statusLabel.setText("La cadena no pertenece al lenguaje.");
-            statusLabel.setForeground(new Color(220, 53, 69));
-            stepLabel.setText(" ");
-            gridPanel.setState(TransitionEngine.initialState());
-            return;
-        }
-
-        statusLabel.setForeground(new Color(73, 80, 87));
-        currentTrace = result.trace();
-        stepIndex = 0;
-        gridPanel.setState(currentTrace.getFirst());
-        statusLabel.setText("Procesando cadena paso a paso...");
-        stepLabel.setText("Paso 0 / " + (currentTrace.size() - 1) + " — Estado inicial q0");
-
-        animationTimer = new Timer(STEP_DELAY_MS, this::advanceStep);
-        animationTimer.setInitialDelay(STEP_DELAY_MS);
-        animationTimer.start();
-    }
-
-    private void advanceStep(ActionEvent e) {
-        stepIndex++;
-        if (currentTrace == null || stepIndex >= currentTrace.size()) {
-            stopAnimationIfRunning();
-            statusLabel.setText("Cadena aceptada. Secuencia completa.");
-            statusLabel.setForeground(new Color(25, 135, 84));
-            return;
-        }
-        RobotState s = currentTrace.get(stepIndex);
-        gridPanel.setState(s);
-        stepLabel.setText("Paso " + stepIndex + " / " + (currentTrace.size() - 1)
-                + " — Posición (" + s.gripperX() + "," + s.gripperY() + "), "
-                + (s.holding() ? "garra llena" : "garra vacía"));
-    }
-
-    private void stopAnimationIfRunning() {
+    private void onExecuteSequence() {
         if (animationTimer != null && animationTimer.isRunning()) {
             animationTimer.stop();
         }
+
+        String input = inputField.getText().trim();
+        AutomatonResult result = processSequenceUseCase.process(input);
+
+        if (!result.isAccepted()) {
+            statusLabel.setText("La cadena no pertenece al autómata.");
+            statusLabel.setForeground(new Color(192, 57, 43));
+            stepLabel.setText("Paso: -");
+            gridPanel.updateState(RobotState.initial());
+            graphPanel.updateState(RobotState.initial());
+            return;
+        }
+
+        statusLabel.setText("Cadena ACEPTADA. Ejecutando animación paso a paso...");
+        statusLabel.setForeground(new Color(39, 174, 96));
+
+        currentTrace = result.trace();
+        animationIndex = 0;
+
+        animationTimer = new Timer(900, (ActionEvent e) -> {
+            if (animationIndex < currentTrace.size()) {
+                RobotState state = currentTrace.get(animationIndex);
+                gridPanel.updateState(state);
+                graphPanel.updateState(state); // Actualiza dinámicamente el nodo activo en el grafo
+                stepLabel.setText("Paso " + animationIndex + " / " + (currentTrace.size() - 1));
+                animationIndex++;
+            } else {
+                animationTimer.stop();
+                statusLabel.setText("Secuencia completada con éxito.");
+            }
+        });
+        animationTimer.start();
     }
 }

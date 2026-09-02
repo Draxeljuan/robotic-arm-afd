@@ -1,31 +1,22 @@
 package com.robot.arm.infrastructure.gui;
 
-import com.robot.arm.domain.model.Position;
+import com.robot.arm.domain.model.GripperState;
 import com.robot.arm.domain.model.RobotState;
-import com.robot.arm.domain.service.TransitionEngine;
 
 import javax.swing.*;
 import java.awt.*;
 
-/**
- * Adaptador de salida (infraestructura): únicamente renderiza un RobotState.
- * Versión con celdas y textos más grandes.
- */
 public class GridPanel extends JPanel {
-
-    private static final int CELL = 150; // Celdas más grandes
-    private static final int MARGIN = 45;
-
-    private RobotState state;
+    private RobotState currentState;
 
     public GridPanel() {
-        this.state = TransitionEngine.initialState();
-        setPreferredSize(new Dimension(CELL * 3 + MARGIN * 2, CELL * 3 + MARGIN * 2));
-        setBackground(new Color(248, 249, 250));
+        this.currentState = RobotState.initial();
+        setPreferredSize(new Dimension(460, 460));
+        setBackground(new Color(245, 247, 250));
     }
 
-    public void setState(RobotState state) {
-        this.state = state;
+    public void updateState(RobotState state) {
+        this.currentState = state;
         repaint();
     }
 
@@ -35,63 +26,105 @@ public class GridPanel extends JPanel {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Cuadrícula
-        for (int x = 0; x < 3; x++) {
-            for (int y = 0; y < 3; y++) {
-                int px = MARGIN + x * CELL;
-                int py = MARGIN + (2 - y) * CELL;
+        int width = getWidth();
+        int height = getHeight();
+        int padding = 40;
+        int cellSize = (Math.min(width, height) - 2 * padding) / 3;
+
+        int startX = (width - cellSize * 3) / 2;
+        int startY = (height - cellSize * 3) / 2;
+
+        // Dibujar Cuadrícula 3x3
+        for (int y = 0; y < 3; y++) {
+            for (int x = 0; x < 3; x++) {
+                int cellX = startX + x * cellSize;
+                int cellY = startY + (2 - y) * cellSize; // Conversión a coordenadas cartesianas
 
                 g2.setColor(Color.WHITE);
-                g2.fillRect(px, py, CELL, CELL);
+                g2.fillRoundRect(cellX + 4, cellY + 4, cellSize - 8, cellSize - 8, 12, 12);
+                g2.setColor(new Color(210, 215, 225));
+                g2.drawRoundRect(cellX + 4, cellY + 4, cellSize - 8, cellSize - 8, 12, 12);
 
-                g2.setColor(new Color(222, 226, 230));
-                g2.drawRect(px, py, CELL, CELL);
-
-                // Coordenadas con letra más grande
-                g2.setColor(new Color(173, 181, 189));
-                g2.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-                g2.drawString("(" + x + "," + y + ")", px + 14, py + 24);
+                g2.setColor(new Color(140, 150, 165));
+                g2.setFont(new Font("SansSerif", Font.BOLD, 12));
+                g2.drawString("(" + x + ", " + y + ")", cellX + 10, cellY + 20);
             }
         }
 
-        // Pieza y garra
-        state.piecePosition().ifPresent(p -> drawPiece(g2, p));
-        drawGripper(g2, state.gripperX(), state.gripperY(), state.holding());
-    }
-
-    private void drawPiece(Graphics2D g2, Position p) {
-        int px = MARGIN + p.x() * CELL;
-        int py = MARGIN + (2 - p.y()) * CELL;
-
-        // Sombra y pieza escaladas al nuevo tamaño de celda
-        g2.setColor(new Color(0, 0, 0, 20));
-        g2.fillOval(px + CELL / 2 - 26, py + CELL / 2 - 24, 56, 56);
-
-        g2.setColor(new Color(13, 110, 253));
-        g2.fillOval(px + CELL / 2 - 28, py + CELL / 2 - 28, 56, 56);
-
-        g2.setColor(Color.WHITE);
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        g2.drawString("PIEZA", px + CELL / 2 - 19, py + CELL / 2 + 5);
-    }
-
-    private void drawGripper(Graphics2D g2, int x, int y, boolean holding) {
-        int gx = MARGIN + x * CELL;
-        int gy = MARGIN + (2 - y) * CELL;
-
-        g2.setStroke(new BasicStroke(4, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        Color boxColor = holding ? new Color(220, 53, 69) : new Color(25, 135, 84);
-        g2.setColor(boxColor);
-        g2.drawRoundRect(gx + 15, gy + 15, CELL - 30, CELL - 30, 16, 16);
-
-        if (holding) {
-            g2.setColor(new Color(220, 53, 69, 50));
-            g2.fillRoundRect(gx + 15, gy + 15, CELL - 30, CELL - 30, 16, 16);
+        // Dibujar Pieza 1 (si está en el tablero)
+        if (currentState != null && currentState.piece1() != null && !currentState.piece1().isHeld()) {
+            int px = currentState.piece1().gridPosition().x();
+            int py = currentState.piece1().gridPosition().y();
+            drawPiece(g2, startX, startY, cellSize, px, py, "P1", new Color(41, 128, 185));
         }
 
-        g2.setColor(new Color(33, 37, 41));
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        String labelText = holding ? "Garra [Cargada]" : "Garra [Libre]";
-        g2.drawString(labelText, gx + 15, gy + CELL - 15);
+        // Dibujar Pieza 2 (si está en el tablero)
+        if (currentState != null && currentState.piece2() != null && !currentState.piece2().isHeld()) {
+            int px = currentState.piece2().gridPosition().x();
+            int py = currentState.piece2().gridPosition().y();
+            drawPiece(g2, startX, startY, cellSize, px, py, "P2", new Color(211, 84, 0));
+        }
+
+        // Dibujar Garra Robótica en la posición actual
+        if (currentState != null) {
+            int armX = currentState.x();
+            int armY = currentState.y();
+            drawRobotArm(g2, startX, startY, cellSize, armX, armY, currentState.gripperState());
+        }
+    }
+
+    private void drawPiece(Graphics2D g2, int startX, int startY, int cellSize, int x, int y, String label, Color color) {
+        int cellX = startX + x * cellSize;
+        int cellY = startY + (2 - y) * cellSize;
+        int size = cellSize / 3;
+        int cx = cellX + (cellSize - size) / 2;
+        int cy = cellY + (cellSize - size) / 2;
+
+        g2.setColor(color);
+        g2.fillOval(cx, cy, size, size);
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 12));
+        FontMetrics fm = g2.getFontMetrics();
+        int tx = cx + (size - fm.stringWidth(label)) / 2;
+        int ty = cy + (size + fm.getAscent() - fm.getDescent()) / 2;
+        g2.drawString(label, tx, ty);
+    }
+
+    private void drawRobotArm(Graphics2D g2, int startX, int startY, int cellSize, int x, int y, GripperState gripper) {
+        int cellX = startX + x * cellSize;
+        int cellY = startY + (2 - y) * cellSize;
+
+        // Marco verde resaltado para la celda actual
+        g2.setColor(new Color(46, 204, 113, 50));
+        g2.fillRoundRect(cellX + 6, cellY + 6, cellSize - 12, cellSize - 12, 10, 10);
+        g2.setColor(new Color(39, 174, 96));
+        g2.setStroke(new BasicStroke(3));
+        g2.drawRoundRect(cellX + 6, cellY + 6, cellSize - 12, cellSize - 12, 10, 10);
+
+        int cx = cellX + cellSize / 2;
+        int cy = cellY + cellSize / 2;
+
+        // Estructura visual de la pinza
+        g2.setColor(new Color(44, 62, 80));
+        g2.setStroke(new BasicStroke(4));
+        g2.drawLine(cx - 20, cy - 22, cx + 20, cy - 22);
+        g2.drawLine(cx - 15, cy - 22, cx - 15, cy - 8);
+        g2.drawLine(cx + 15, cy - 22, cx + 15, cy - 8);
+
+        // Badge si está sosteniendo una pieza
+        if (gripper == GripperState.HOLDING_PIECE_1) {
+            drawHeldBadge(g2, cx, cy, "PINZA: [P1]", new Color(41, 128, 185));
+        } else if (gripper == GripperState.HOLDING_PIECE_2) {
+            drawHeldBadge(g2, cx, cy, "PINZA: [P2]", new Color(211, 84, 0));
+        }
+    }
+
+    private void drawHeldBadge(Graphics2D g2, int cx, int cy, String text, Color color) {
+        g2.setColor(color);
+        g2.fillRoundRect(cx - 38, cy - 5, 76, 20, 8, 8);
+        g2.setColor(Color.WHITE);
+        g2.setFont(new Font("SansSerif", Font.BOLD, 10));
+        FontMetrics fm = g2.getFontMetrics();
+        g2.drawString(text, cx - fm.stringWidth(text) / 2, cy + 9);
     }
 }
